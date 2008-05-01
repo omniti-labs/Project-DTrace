@@ -1,0 +1,686 @@
+Index: Makefile.in
+===================================================================
+--- Makefile.in	(revision 652418)
++++ Makefile.in	(working copy)
+@@ -2,10 +2,19 @@
+ SUBDIRS = srclib os server modules support
+ CLEAN_SUBDIRS = test
+ 
++MPM_LIB = $(MPM_LIB:.la=.o)
++PROGRAM_DEPENDENCIES_O = $(PROGRAM_DEPENDENCIES:.la=.o)
++PROGRAM_DEPENDENCIES_OBJECTS = $(PROGRAM_DEPENDENCIES:.la=.objects)
++
+ PROGRAM_NAME         = $(progname)
+ PROGRAM_SOURCES      = modules.c
+-PROGRAM_LDADD        = buildmark.o $(HTTPD_LDFLAGS) $(PROGRAM_DEPENDENCIES) $(EXTRA_LIBS) $(AP_LIBS) $(LIBS)
+-PROGRAM_PRELINK      = $(COMPILE) -c $(top_srcdir)/server/buildmark.c
++PROGRAM_LDADD        = buildmark.o $(HTTPD_LDFLAGS) `cat $(PROGRAM_DEPENDENCIES_OBJECTS)` \
++			`test -f probes.o && echo probes.o` $(EXTRA_LIBS) $(AP_LIBS) $(LIBS) \
++			`./libtool-dep-extract $(PROGRAM_DEPENDENCIES)`
++PROGRAM_PRELINK      = $(COMPILE) -c $(top_srcdir)/server/buildmark.c && \
++			$(DTRACE) $(DTRACEFLAGS) -G -s apache_probes.d -o probes.o \
++			.libs/modules.o buildmark.o `cat $(PROGRAM_DEPENDENCIES_OBJECTS)`
++
+ PROGRAM_DEPENDENCIES = \
+   server/libmain.la \
+   $(BUILTIN_LIBS) \
+@@ -16,7 +25,7 @@
+ TARGETS         = $(PROGRAMS) $(shared_build) $(other_targets)
+ INSTALL_TARGETS = install-conf install-htdocs install-error install-icons \
+ 	install-other install-cgi install-include install-suexec install-build \
+-	install-man
++	install-man install-dtrace
+ 
+ DISTCLEAN_TARGETS  = include/ap_config_auto.h include/ap_config_layout.h \
+ 	modules.c config.cache config.log config.status build/config_vars.mk \
+@@ -28,6 +37,16 @@
+ include $(top_builddir)/build/rules.mk
+ include $(top_srcdir)/build/program.mk
+ 
++install-dtrace:
++	@echo Installing DTrace library
++	@$(MKINSTALLDIRS) $(DESTDIR)/usr/lib/dtrace
++	@chown root:sys $(DESTDIR)/usr
++	@chown -R root:bin $(DESTDIR)/usr/lib
++	@chmod -R 0755 $(DESTDIR)/usr
++	@cp $(top_srcdir)/ap.d $(DESTDIR)/usr/lib/dtrace
++	@chown root:bin $(DESTDIR)/usr/lib/dtrace/ap.d
++	@chmod 0644 $(DESTDIR)/usr/lib/dtrace/ap.d
++
+ install-conf:
+ 	@echo Installing configuration files
+ 	@$(MKINSTALLDIRS) $(DESTDIR)$(sysconfdir) $(DESTDIR)$(sysconfdir)/extra
+Index: libtool-dep-extract
+===================================================================
+--- libtool-dep-extract	(revision 0)
++++ libtool-dep-extract	(revision 0)
+@@ -0,0 +1,6 @@
++#!/bin/sh
++
++for i in $*
++do
++  sh -c ". $i; "'echo $dependency_libs'
++done
+
+Property changes on: libtool-dep-extract
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Index: ap.d
+===================================================================
+--- ap.d	(revision 0)
++++ ap.d	(revision 0)
+@@ -0,0 +1,100 @@
++#pragma D depends_on provider io
++typedef struct request_rec {
++    uintptr_t pool;
++    uintptr_t connection;
++    uintptr_t server;
++    uintptr_t next;
++    uintptr_t prev;
++    uintptr_t main;
++    char *the_request;
++    int assbackwards;
++    int proxyreq;
++    int header_only;
++    char *protocol;
++    int proto_num;
++    char *hostname;
++    int64_t request_time;
++    char *status_line;
++    int status;
++    const char *method;
++    int method_number;
++    int64_t allowed;
++    uintptr_t allowed_xmethods;
++    uintptr_t allowed_methods;
++    offset_t sent_bodyct;
++    offset_t bytes_sent;
++    int64_t mtime;
++    int chunked;
++    char *range;
++    offset_t clength;
++    offset_t remaining;
++    offset_t read_length;
++    int read_body;
++    int read_chunked;
++    unsigned expecting_100;
++    uintptr_t headers_in;
++    uintptr_t headers_out;
++    uintptr_t err_headers_out;
++    uintptr_t subprocess_env;
++    uintptr_t notes;
++    char *content_type;   /* Break these out --- we dispatch on 'em */
++    char *handler;        /* What we *really* dispatch on */
++    char *content_encoding;
++    uintptr_t content_languages;
++    char *vlist_validator;
++    char *user;
++    char *ap_auth_type;
++    int no_cache;
++    int no_local_copy;
++    char *unparsed_uri;
++    char *uri;
++    char *filename;
++    char *canonical_filename;
++    char *path_info;
++    char *args;
++    /* finfo */
++    uintptr_t finfo_pool;
++    int32_t finfo_valid;
++    int32_t finfo_protection;
++    int32_t finfo_filetype;
++    int finfo_user;
++    int finfo_group;
++    uint64_t finfo_inode;
++    uint64_t finfo_device;
++    int32_t finfo_nlink;
++    offset_t finfo_size;
++    offset_t finfo_csize;
++    int64_t finfo_atime;
++    int64_t finfo_mtime;
++    int64_t finfo_ctime;
++    char *finfo_fname;
++    char *finfo_name;
++    uintptr_t finfo_ffilehand;
++    /* parsed_uri */
++    char *uri_scheme;
++    char *uri_hostinfo;
++    char *uri_user;
++    char *uri_password;
++    char *uri_hostname;
++    char *uri_port_str;
++    char *uri_path;
++    char *uri_query;
++    char *uri_fragment;
++    uintptr_t uri_hostent;
++    uint16_t uri_port;
++    unsigned uri_is_initialized:1;
++    unsigned uri_dns_looked_up:1;
++    unsigned uri_dns_resolved:1;
++
++    /* back to request_rec */
++    int used_path_info;
++    uintptr_t per_dir_config;
++    uintptr_t request_config;
++    uintptr_t htaccess;
++    uintptr_t output_filters;
++    uintptr_t input_filters;
++    uintptr_t proto_output_filters;
++    uintptr_t proto_input_filters;
++    int eos_sent;
++} request_rec;
++
+Index: server/Makefile.in
+===================================================================
+--- server/Makefile.in	(revision 652418)
++++ server/Makefile.in	(working copy)
+@@ -61,7 +61,7 @@
+ 	for dir in $(EXPORT_DIRS_APR); do \
+ 	    (ls $$dir/ap[ru].h $$dir/ap[ru]_*.h >> $$tmp 2>/dev/null); \
+ 	done; \
+-	sort -u $$tmp > $@; \
++	sort -u $$tmp | grep -v apache_probes.h > $@; \
+ 	rm -f $$tmp
+ 
+ exports.c: export_files
+Index: server/protocol.c
+===================================================================
+--- server/protocol.c	(revision 652418)
++++ server/protocol.c	(working copy)
+@@ -844,9 +844,11 @@
+     apr_socket_t *csd;
+     apr_interval_time_t cur_timeout;
+ 
++
+     apr_pool_create(&p, conn->pool);
+     apr_pool_tag(p, "request");
+     r = apr_pcalloc(p, sizeof(request_rec));
++    AP_READ_REQUEST_ENTRY((intptr_t)r, (uintptr_t)conn);
+     r->pool            = p;
+     r->connection      = conn;
+     r->server          = conn->base_server;
+@@ -896,11 +898,12 @@
+             ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+             ap_run_log_transaction(r);
+             apr_brigade_destroy(tmp_bb);
+-            return r;
++            goto traceout;
+         }
+ 
+         apr_brigade_destroy(tmp_bb);
+-        return NULL;
++        r = NULL;
++        goto traceout;
+     }
+ 
+     /* We may have been in keep_alive_timeout mode, so toggle back
+@@ -923,7 +926,7 @@
+             ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+             ap_run_log_transaction(r);
+             apr_brigade_destroy(tmp_bb);
+-            return r;
++            goto traceout;
+         }
+ 
+         if (apr_table_get(r->headers_in, "Transfer-Encoding")
+@@ -951,7 +954,7 @@
+             ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+             ap_run_log_transaction(r);
+             apr_brigade_destroy(tmp_bb);
+-            return r;
++            goto traceout;
+         }
+     }
+ 
+@@ -1005,14 +1008,15 @@
+         ap_send_error_response(r, 0);
+         ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+         ap_run_log_transaction(r);
+-        return r;
++        goto traceout;
+     }
+ 
+     if ((access_status = ap_run_post_read_request(r))) {
+         ap_die(access_status, r);
+         ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+         ap_run_log_transaction(r);
+-        return NULL;
++        r = NULL;
++        goto traceout;
+     }
+ 
+     if (((expect = apr_table_get(r->headers_in, "Expect")) != NULL)
+@@ -1034,11 +1038,15 @@
+             ap_send_error_response(r, 0);
+             ap_update_child_status(conn->sbh, SERVER_BUSY_LOG, r);
+             ap_run_log_transaction(r);
+-            return r;
++            goto traceout;
+         }
+     }
+ 
++    AP_READ_REQUEST_SUCCESS((uintptr_t)r, (char *)r->method, (char *)r->uri, (char *)r->server->defn_name, r->status);
+     return r;
++    traceout:
++    AP_READ_REQUEST_FAILURE((uintptr_t)r);
++    return r;
+ }
+ 
+ /* if a request with a body creates a subrequest, clone the original request's
+Index: modules/http/http_request.c
+===================================================================
+--- modules/http/http_request.c	(revision 652418)
++++ modules/http/http_request.c	(working copy)
+@@ -249,6 +249,7 @@
+      * Use this hook with extreme care and only if you know what you are
+      * doing.
+      */
++    AP_PROCESS_REQUEST_ENTRY((uintptr_t)r, r->uri);
+     if (ap_extended_status)
+         ap_time_process_request(r->connection->sbh, START_PREQUEST);
+     access_status = ap_run_quick_handler(r, 0);  /* Not a look-up request */
+@@ -284,6 +285,8 @@
+     ap_run_log_transaction(r);
+     if (ap_extended_status)
+         ap_time_process_request(r->connection->sbh, STOP_PREQUEST);
++
++    AP_PROCESS_REQUEST_RETURN((uintptr_t)r, r->uri, access_status);
+ }
+ 
+ static apr_table_t *rename_original_env(apr_pool_t *p, apr_table_t *t)
+@@ -465,6 +468,8 @@
+     request_rec *new = internal_internal_redirect(new_uri, r);
+     int access_status;
+ 
++    AP_INTERNAL_REDIRECT(r->uri, new_uri);
++
+     /* ap_die was already called, if an error occured */
+     if (!new) {
+         return;
+Index: modules/proxy/mod_proxy.c
+===================================================================
+--- modules/proxy/mod_proxy.c	(revision 652418)
++++ modules/proxy/mod_proxy.c	(working copy)
+@@ -849,6 +849,7 @@
+         ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+                      "Running scheme %s handler (attempt %d)",
+                      scheme, attempts);
++        AP_PROXY_RUN(r, worker, conf, url, attempts);
+         access_status = proxy_run_scheme_handler(r, worker, conf,
+                                                  url, NULL, 0);
+         if (access_status == OK)
+@@ -902,6 +903,7 @@
+     }
+ 
+     proxy_run_request_status(&access_status, r);
++    AP_PROXY_RUN_FINISHED(r, attempts, access_status);
+ 
+     return access_status;
+ }
+Index: modules/mappers/mod_rewrite.c
+===================================================================
+--- modules/mappers/mod_rewrite.c	(revision 652418)
++++ modules/mappers/mod_rewrite.c	(working copy)
+@@ -478,7 +478,8 @@
+ 
+     conf = ap_get_module_config(r->server->module_config, &rewrite_module);
+ 
+-    if (!conf->rewritelogfp || level > conf->rewriteloglevel) {
++    if ((!conf->rewritelogfp || level > conf->rewriteloglevel) &&
++        !AP_REWRITE_LOG_ENABLED()) {
+         return;
+     }
+ 
+@@ -512,6 +513,11 @@
+                            perdir ? "] ": "",
+                            text);
+ 
++    AP_REWRITE_LOG((uintptr_t)r, level, r->main ? 0 : 1, (char *)ap_get_server_name(r), logline);
++
++    if (!conf->rewritelogfp || level > conf->rewriteloglevel)
++        return;
++
+     rv = apr_global_mutex_lock(rewrite_log_lock);
+     if (rv != APR_SUCCESS) {
+         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
+Index: apache_probes.d
+===================================================================
+--- apache_probes.d	(revision 0)
++++ apache_probes.d	(revision 0)
+@@ -0,0 +1,172 @@
++provider ap {
++  /* Explicit, core */
++  probe internal__redirect(char *, char *);
++  probe process__request__entry(uintptr_t, char *);
++  probe process__request__return(uintptr_t, char *, uint32_t);
++  probe read__request__entry(uintptr_t, uintptr_t);
++  probe read__request__success(uintptr_t, char *, char *, char *, uint32_t);
++  probe read__request__failure(uintptr_t);
++
++  /* Explicit, modules */
++  probe rewrite__log(uintptr_t);
++  probe proxy__run(uintptr_t);
++  probe proxy__run__finished(uintptr_t);
++
++  /* Implicit, APR hooks */
++  probe translate_name__entry();
++  probe translate_name__dispatch__invoke(char *);
++  probe translate_name__dispatch__complete(char *, uint32_t);
++  probe translate_name__return(uint32_t);
++  probe map_to_storage__entry();
++  probe map_to_storage__dispatch__invoke(char *);
++  probe map_to_storage__dispatch__complete(char *, uint32_t);
++  probe map_to_storage__return(uint32_t);
++  probe check_user_id__entry();
++  probe check_user_id__dispatch__invoke(char *);
++  probe check_user_id__dispatch__complete(char *, uint32_t);
++  probe check_user_id__return(uint32_t);
++  probe fixups__entry();
++  probe fixups__dispatch__invoke(char *);
++  probe fixups__dispatch__complete(char *, uint32_t);
++  probe fixups__return(uint32_t);
++  probe type_checker__entry();
++  probe type_checker__dispatch__invoke(char *);
++  probe type_checker__dispatch__complete(char *, uint32_t);
++  probe type_checker__return(uint32_t);
++  probe access_checker__entry();
++  probe access_checker__dispatch__invoke(char *);
++  probe access_checker__dispatch__complete(char *, uint32_t);
++  probe access_checker__return(uint32_t);
++  probe auth_checker__entry();
++  probe auth_checker__dispatch__invoke(char *);
++  probe auth_checker__dispatch__complete(char *, uint32_t);
++  probe auth_checker__return(uint32_t);
++  probe insert_filter__entry();
++  probe insert_filter__dispatch__invoke(char *);
++  probe insert_filter__dispatch__complete(char *, uint32_t);
++  probe insert_filter__return(uint32_t);
++  probe create_connection__entry();
++  probe create_connection__dispatch__invoke(char *);
++  probe create_connection__dispatch__complete(char *, uint32_t);
++  probe create_connection__return(uint32_t);
++  probe pre_connection__entry();
++  probe pre_connection__dispatch__invoke(char *);
++  probe pre_connection__dispatch__complete(char *, uint32_t);
++  probe pre_connection__return(uint32_t);
++  probe process_connection__entry();
++  probe process_connection__dispatch__invoke(char *);
++  probe process_connection__dispatch__complete(char *, uint32_t);
++  probe process_connection__return(uint32_t);
++  probe create_request__entry();
++  probe create_request__dispatch__invoke(char *);
++  probe create_request__dispatch__complete(char *, uint32_t);
++  probe create_request__return(uint32_t);
++  probe header_parser__entry();
++  probe header_parser__dispatch__invoke(char *);
++  probe header_parser__dispatch__complete(char *, uint32_t);
++  probe header_parser__return(uint32_t);
++  probe pre_config__entry();
++  probe pre_config__dispatch__invoke(char *);
++  probe pre_config__dispatch__complete(char *, uint32_t);
++  probe pre_config__return(uint32_t);
++  probe test_config__entry();
++  probe test_config__dispatch__invoke(char *);
++  probe test_config__dispatch__complete(char *, uint32_t);
++  probe test_config__return(uint32_t);
++  probe post_config__entry();
++  probe post_config__dispatch__invoke(char *);
++  probe post_config__dispatch__complete(char *, uint32_t);
++  probe post_config__return(uint32_t);
++  probe open_logs__entry();
++  probe open_logs__dispatch__invoke(char *);
++  probe open_logs__dispatch__complete(char *, uint32_t);
++  probe open_logs__return(uint32_t);
++  probe child_init__entry();
++  probe child_init__dispatch__invoke(char *);
++  probe child_init__dispatch__complete(char *, uint32_t);
++  probe child_init__return(uint32_t);
++  probe handler__entry();
++  probe handler__dispatch__invoke(char *);
++  probe handler__dispatch__complete(char *, uint32_t);
++  probe handler__return(uint32_t);
++  probe quick_handler__entry();
++  probe quick_handler__dispatch__invoke(char *);
++  probe quick_handler__dispatch__complete(char *, uint32_t);
++  probe quick_handler__return(uint32_t);
++  probe optional_fn_retrieve__entry();
++  probe optional_fn_retrieve__dispatch__invoke(char *);
++  probe optional_fn_retrieve__dispatch__complete(char *, uint32_t);
++  probe optional_fn_retrieve__return(uint32_t);
++  probe get_mgmt_items__entry();
++  probe get_mgmt_items__dispatch__invoke(char *);
++  probe get_mgmt_items__dispatch__complete(char *, uint32_t);
++  probe get_mgmt_items__return(uint32_t);
++  probe pre_mpm__entry();
++  probe pre_mpm__dispatch__invoke(char *);
++  probe pre_mpm__dispatch__complete(char *, uint32_t);
++  probe pre_mpm__return(uint32_t);
++  probe default_port__entry();
++  probe default_port__dispatch__invoke(char *);
++  probe default_port__dispatch__complete(char *, uint32_t);
++  probe default_port__return(uint32_t);
++  probe http_scheme__entry();
++  probe http_scheme__dispatch__invoke(char *);
++  probe http_scheme__dispatch__complete(char *, uint32_t);
++  probe http_scheme__return(uint32_t);
++  probe error_log__entry();
++  probe error_log__dispatch__invoke(char *);
++  probe error_log__dispatch__complete(char *, uint32_t);
++  probe error_log__return(uint32_t);
++  probe log_transaction__entry();
++  probe log_transaction__dispatch__invoke(char *);
++  probe log_transaction__dispatch__complete(char *, uint32_t);
++  probe log_transaction__return(uint32_t);
++  probe monitor__entry();
++  probe monitor__dispatch__invoke(char *);
++  probe monitor__dispatch__complete(char *, uint32_t);
++  probe monitor__return(uint32_t);
++  probe post_read_request__entry();
++  probe post_read_request__dispatch__invoke(char *);
++  probe post_read_request__dispatch__complete(char *, uint32_t);
++  probe post_read_request__return(uint32_t);
++  probe get_suexec_identity__entry();
++  probe get_suexec_identity__dispatch__invoke(char *);
++  probe get_suexec_identity__dispatch__complete(char *, uint32_t);
++  probe get_suexec_identity__return(uint32_t);
++  probe insert_error_filter__entry();
++  probe insert_error_filter__dispatch__invoke(char *);
++  probe insert_error_filter__dispatch__complete(char *, uint32_t);
++  probe insert_error_filter__return(uint32_t);
++
++  /* Implicit, APR hooks for proxy */
++  probe scheme_handler__entry();
++  probe scheme_handler__dispatch__invoke(char *);
++  probe scheme_handler__dispatch__complete(char *, uint32_t);
++  probe scheme_handler__return(uint32_t);
++  probe canon_handler__entry();
++  probe canon_handler__dispatch__invoke(char *);
++  probe canon_handler__dispatch__complete(char *, uint32_t);
++  probe canon_handler__return(uint32_t);
++  probe pre_request__entry();
++  probe pre_request__dispatch__invoke(char *);
++  probe pre_request__dispatch__complete(char *, uint32_t);
++  probe pre_request__return(uint32_t);
++  probe post_request__entry();
++  probe post_request__dispatch__invoke(char *);
++  probe post_request__dispatch__complete(char *, uint32_t);
++  probe post_request__return(uint32_t);
++
++  /* Implicit, APR hooks for dav */
++  probe gather_propsets__entry();
++  probe gather_propsets__dispatch__invoke(char *);
++  probe gather_propsets__dispatch__complete(char *, uint32_t);
++  probe gather_propsets__return(uint32_t);
++  probe find_liveprop__entry();
++  probe find_liveprop__dispatch__invoke(char *);
++  probe find_liveprop__dispatch__complete(char *, uint32_t);
++  probe find_liveprop__return(uint32_t);
++  probe insert_all_liveprops__entry();
++  probe insert_all_liveprops__dispatch__invoke(char *);
++  probe insert_all_liveprops__dispatch__complete(char *, uint32_t);
++  probe insert_all_liveprops__return(uint32_t);
++};
+Index: include/ap_config.h
+===================================================================
+--- include/ap_config.h	(revision 652418)
++++ include/ap_config.h	(working copy)
+@@ -238,6 +238,13 @@
+ #define AP_NONBLOCK_WHEN_MULTI_LISTEN 1
+ #endif
+ 
++#if AP_ENABLE_DTRACE && HAVE_SYS_SDT_H
++#include <sys/sdt.h>
++#else
++#undef _DTRACE_VERSION
++#endif
++#include "apache_probes.h"
++
+ /* TODO - We need to put OS detection back to make all the following work */
+ 
+ #if defined(SUNOS4) || defined(IRIX) || defined(NEXT) || defined(AUX3) \
+Index: configure.in
+===================================================================
+--- configure.in	(revision 652418)
++++ configure.in	(working copy)
+@@ -372,7 +372,8 @@
+ strings.h \
+ sys/prctl.h \
+ sys/processor.h \
+-sys/sem.h
++sys/sem.h \
++sys/sdt.h
+ )
+ AC_HEADER_SYS_WAIT
+ 
+@@ -438,6 +439,24 @@
+         [if test "$withval" = "yes"; then AC_MSG_ERROR('option --with-sslport requires a value (the SSL TCP port number)'); else SSLPORT="$withval"; fi],
+ 	[SSLPORT=443])
+ 
++AC_ARG_ENABLE(dtrace,APACHE_HELP_STRING(--enable-dtrace,Enable DTrace probes),
++[
++  enable_dtrace=$enableval
++  APR_ADDTO(CPPFLAGS, -DAPR_DTRACE_PROVIDER)
++],
++[
++  enable_dtrace=no
++])
++
++DTRACE=true
++if test $enable_dtrace = "yes" -a "$ac_cv_header_sys_sdt_h" = "yes"; then
++    AC_DEFINE(AP_ENABLE_DTRACE, 1,
++              [Enable DTrace probes])
++    DTRACE="/usr/sbin/dtrace $DTRACEFLAGS"
++    test -f include/apache_probes.h || $DTRACE -h -s apache_probes.d -o include/apache_probes.h
++fi
++APACHE_SUBST(DTRACE)
++
+ APR_CHECK_APR_DEFINE(APR_HAVE_IPV6)
+ 
+ AC_ARG_ENABLE(v4-mapped,APACHE_HELP_STRING(--enable-v4-mapped,Allow IPv6 sockets to handle IPv4 connections),
+@@ -495,6 +514,9 @@
+ AC_SUBST(PILDFLAGS)
+ 
+ prefix="$orig_prefix"
++cat >static_modules.mk<<EOF
++MODULE_OBJS = \\
++EOF
+ APACHE_ENABLE_MODULES
+ 
+ dnl reading config stubs
+@@ -675,6 +697,7 @@
+ HTTPD_VERSION=`$abs_srcdir/build/get-version.sh all $abs_srcdir/include/ap_release.h AP_SERVER`
+ AC_SUBST(HTTPD_VERSION)
+ 
++echo >>static_modules.mk
+ AC_OUTPUT($APACHE_OUTPUT_FILES docs/conf/httpd.conf docs/conf/extra/httpd-autoindex.conf docs/conf/extra/httpd-dav.conf docs/conf/extra/httpd-default.conf docs/conf/extra/httpd-info.conf docs/conf/extra/httpd-languages.conf docs/conf/extra/httpd-manual.conf docs/conf/extra/httpd-mpm.conf docs/conf/extra/httpd-multilang-errordoc.conf docs/conf/extra/httpd-ssl.conf docs/conf/extra/httpd-userdir.conf docs/conf/extra/httpd-vhosts.conf include/ap_config_layout.h support/apxs support/apachectl support/dbmmanage support/envvars-std support/log_server_status support/logresolve.pl support/phf_abuse_log.cgi support/split-logfile build/rules.mk build/pkg/pkginfo build/config_vars.sh,[true],[
+   APACHE_GEN_MAKEFILES
+ ])
+Index: build/library.mk
+===================================================================
+--- build/library.mk	(revision 652418)
++++ build/library.mk	(working copy)
+@@ -17,6 +17,13 @@
+ # The build environment was provided by Sascha Schumann.
+ 
+ LTLIBRARY_OBJECTS = $(LTLIBRARY_SOURCES:.c=.lo) $(LTLIBRARY_OBJECTS_X)
++LTLIBRARY_CS = $(LTLIBRARY_SOURCES:%.h=)
++LTLIBRARY_OS = $(LTLIBRARY_CS:.c=.o)
++LTLIBRARY_FP_OS = $(LTLIBRARY_OS:%=$(builddir)/%)
++LIBNAME=$(LTLIBRARY_NAME:.la=.o)
++LIBLIST=$(LTLIBRARY_NAME:.la=.objects)
+ 
+ $(LTLIBRARY_NAME): $(LTLIBRARY_OBJECTS) $(LTLIBRARY_DEPENDENCIES)
+ 	$(LINK) -static $(LTLIBRARY_LDFLAGS) $(LTLIBRARY_OBJECTS) $(LTLIBRARY_LIBADD)
++	echo $(LTLIBRARY_FP_OS) > $(LIBLIST)
++	ld -r -o $(LIBNAME) $(LTLIBRARY_OS)
+Index: acinclude.m4
+===================================================================
+--- acinclude.m4	(revision 652418)
++++ acinclude.m4	(working copy)
+@@ -175,23 +175,63 @@
+   fi
+ 
+   if test -z "$module_standalone"; then
++    cat >$modpath_current/probes_$1.libtool.hack<<EOF
++# probes_$1.lo - a libtool object file
++# Generated by ltmain.sh - GNU libtool 1.5.20 (1.1220.2.287 2005/08/31 18:54:15)
++#
++# Please DO NOT delete this file!
++# It is necessary for linking the library.
++
++# Name of the PIC object.
++pic_object='.libs/probes_$1.o'
++
++# Name of the non-PIC object.
++non_pic_object='probes_$1.o'
++EOF
+     if test -z "$2"; then
+       # The filename of a convenience library must have a "lib" prefix:
+       libname="libmod_$1.la"
+       BUILTIN_LIBS="$BUILTIN_LIBS $modpath_current/$libname"
+       modpath_static="$modpath_static $libname"
++      realobjects=`echo $objects | sed -e 's/\.lo/.o/g;'`
++      pathobjects=`echo $objects | sed -e 's/\.lo/.o/g;' -e "s#^#$modpath_current/#;" -e "s# # $modpath_current/#g;"`
++      if test -r "$modpath_current/mod_$1.d"; then
++        echo "Found probes for $1 [$DTRACE]"
++	BUILD_DTRACE="\$(DTRACE) \$(DTRACEFLAGS) -G -s \$(top_srcdir)/apache_probes.d -s probes_$1.d $realobjects && cp probes_$1.o .libs/probes_$1.o && cp probes_$1.libtool.hack probes_$1.lo"
++        DTRACE_OBJ=probes_$1.lo
++        $DTRACE $DTRACEFLAGS -h -o $modpath_current/probes_$1.h -s $modpath_current/probes_$1.d
++      else
++	BUILD_DTRACE="\$(DTRACE) \$(DTRACEFLAGS) -G -o probes_$1.o -s \$(top_srcdir)/apache_probes.d $realobjects && cp probes_$1.o .libs/probes_$1.o && cp probes_$1.libtool.hack probes_$1.lo"
++        DTRACE_OBJ=probes_$1.o
++      fi
+       cat >>$modpath_current/modules.mk<<EOF
+ $libname: $objects
+ 	\$(MOD_LINK) $objects $5
++	ld -r -o `echo $libname | sed -e 's/\.la/.o/;'` $realobjects
++	echo "$pathobjects" > `echo $libname | sed -e 's/\.la/.objects/;'`
+ EOF
+     else
+       apache_need_shared=yes
+       libname="mod_$1.la"
+       shobjects=`echo $objects | sed 's/\.lo/.slo/g'`
++      realobjects=`echo $objects | sed -e 's/\.lo/.o/g;' -e 's/^/.libs\//g;' -e 's/ / .libs\//g;'`
+       modpath_shared="$modpath_shared $libname"
++      if test -r "$modpath_current/probes_$1.d"; then
++        echo "Found probes for $1 [$DTRACE]"
++	BUILD_DTRACE="\$(DTRACE) \$(DTRACEFLAGS) -G -s \$(top_srcdir)/apache_probes.d -s probes_$1.d $realobjects && cp probes_$1.o .libs/probes_$1.o && cp probes_$1.libtool.hack probes_$1.lo"
++        DTRACE_OBJ=probes_$1.lo
++        $DTRACE $DTRACEFLAGS -h -o $modpath_current/probes_$1.h -s $modpath_current/probes_$1.d
++        RELINK="\$(CC) -shared \$(CFLAGS) -o .libs/mod_$1.so $realobjects .libs/probes_$1.o $5"
++      else
++	BUILD_DTRACE="\$(DTRACE) \$(DTRACEFLAGS) -G -o probes_$1.o -s \$(top_srcdir)/apache_probes.d $realobjects && cp probes_$1.o .libs/probes_$1.o && cp probes_$1.libtool.hack probes_$1.lo"
++        DTRACE_OBJ=probes_$1.lo
++        RELINK="\$(CC) -shared \$(CFLAGS) -o .libs/mod_$1.so $realobjects .libs/probes_$1.o $5"
++      fi
+       cat >>$modpath_current/modules.mk<<EOF
+ $libname: $shobjects
+-	\$(SH_LINK) -rpath \$(libexecdir) -module -avoid-version $4 $objects $5
++	$BUILD_DTRACE
++	\$(SH_LINK) -rpath \$(libexecdir) -module -avoid-version $4 $objects $DTRACE_OBJ $5
++	$RELINK
+ EOF
+     fi
+   fi

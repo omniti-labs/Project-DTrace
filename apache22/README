@@ -1,0 +1,31 @@
+The apr-util-hook-probes patch is a header-only patch to apr-util that
+introduces optional DTrace probes into hook definitions:
+   hook-entry
+      foreach registration:
+        hook-dispatch-invoke
+        (call)
+        hook-dispatch-complete
+   hook-return
+
+Apply this to apr-utils (or patch the installed apr_hooks.h file)
+
+
+The apache-2.2.x-probes patch is all the leg work to add dtrace probes into
+Apache 2.2.x branch.  They will apply to the 2.2.8 distribution
+successfully (with fuzz).
+
+The apache-2.2.8-probes patch fixes up the files in the 2.2.8 distro
+that aren't in trunk.  These are the products of buildconf:
+   configure
+   include/ap_auto_config.h.in
+
+Apply both of these (in any order), then add --enable-dtrace to the
+configure line.
+
+It is highly likely that these patches are unclean for non-dtrace use.
+That means, applying the patch and then not using --enable-dtrace may result
+in a failure to build.
+
+Also, the dtrace -G usage is hard-coded in, so this will not work on Mac OS X
+without a bit of manual touchup.
+
