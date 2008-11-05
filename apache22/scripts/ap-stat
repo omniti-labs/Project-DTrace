@@ -1,0 +1,86 @@
+#!/bin/sh
+
+TIME=5
+GROUP="uri"
+ONLYTYPE=""
+CNTS='trunc(@ctcnt, 20); printf("\nCounts by URI\n"); printa(@ctcnt);'
+SCALLS='trunc(@ctsys, 20); printf("\nSyscalls by URI\n"); printa(@ctsys);'
+TIMES='trunc(@cttime, 20); printf("\nService time by URI\n"); printa(@cttime);'
+BYTES='trunc(@ctbytes, 20); printf("\nBytes by URI\n"); printa(@ctbytes);'
+TRACKSCALLS='syscall:::entry/self->rptr/{self->ncalls++;}'
+DESTRUCTIVE=''
+
+set -- `getopt P:wg:i:C:cstb $*`
+if [ $? != 0 ]
+then
+  echo "$0 [-C onlytype] [-g <uri|content_type>] [-i sec] < -c | -s | -t | -b > [-P ppid]"
+  exit 2
+fi
+for i in $*
+do
+  case $i in
+    -C)  ONLYTYPE=$2; shift 2;;
+    -g)  GROUP=$2; shift 2;;
+    -i)  TIME=$2; shift 2;;
+    -c)  SCRIPT=$CNTS; shift;;
+    -s)  SCRIPT=$SCALLS; shift;;
+    -t)  SCRIPT=$TIMES; shift;;
+    -b)  SCRIPT=$BYTES; shift;;
+    -w)  DESTRUCTIVE=-w; shift;;
+    -P)  PPID=$2; shift 2;;
+  esac
+done
+
+if [ -z "$PPID" ]; then
+  PPID=`ps -e -o pid,ppid,comm | awk '/http/{if($2 == 1) {print $1}}'`
+fi
+if [ "`echo $PPID | sed -e 's/[0-9]//g;'`" != ""  ]; then
+  echo "Multiple apaches to choose from (use -P):"
+  ps -e -o pid,ppid,comm,zone | awk '/http/{if($2 == 1) {print $1" "$3" in "$4}}'
+  exit
+fi
+
+dtrace $DESTRUCTIVE -q -n '
+ap*::ap_read_request:read-request-entry
+/!self->rptr && curpsinfo->pr_ppid == '$PPID'/
+{
+  self->rptr = arg0;
+  self->ncalls = 0;
+  self->starttime = timestamp;
+}
+'$TRACKSCALLS'
+ap*:::process-request-return
+/self->rptr && arg0 == self->rptr/
+{
+  self->r = self->rptr ? (request_rec *)copyin(self->rptr, sizeof(request_rec)) : NULL;
+  self->'$GROUP' = (self->r && self->r->'$GROUP') ?
+                         copyinstr((uintptr_t)self->r->'$GROUP') : "unknown";
+  self->content_type = (self->r && self->r->content_type) ?
+                         copyinstr((uintptr_t)self->r->content_type) : "unknown";
+}
+ap*:::process-request-return
+/self->rptr && arg0 == self->rptr && strstr(self->content_type, "'$ONLYTYPE'") != NULL/
+{
+  @ctsys[self->'$GROUP'] = avg(self->ncalls);
+  @cttime[self->'$GROUP'] = avg(((timestamp > self->starttime) ?
+                                       (timestamp - self->starttime) : 0)/1000000);
+  @ctcnt[self->'$GROUP'] = count();
+  @ctbytes[self->'$GROUP'] = sum(self->r->bytes_sent);
+  self->rptr = NULL;
+  self->'$GROUP' = NULL;
+  self->content_type = NULL;
+}
+
+tick-'$TIME'sec{
+  printf("[H[2J");
+  '"$SCRIPT"'
+  trunc(@ctcnt,0);
+  clear(@ctcnt);
+  trunc(@ctsys,0);
+  clear(@ctsys);
+  trunc(@cttime,0);
+  clear(@cttime);
+  trunc(@ctbytes,0);
+  clear(@ctbytes);
+}
+'

@@ -1,0 +1,78 @@
+#!/bin/sh
+
+MAX=`echo "dtrace_dof_maxsize/E" | mdb -k | awk '{print $2;}'`
+if [ "$MAX" -lt "524288" ]; then
+  echo "You need to tune your kernel (dtrace_dof_maxsize: $MAX)..."
+  echo "dtrace_dof_maxsize in /etc/system should be 0x80000"
+  echo "or in mdb -kw"
+  echo "  dtrace_dof_maxsize/Z 0x80000"
+  exit
+fi
+
+DANGER=""
+NAPACHES=0
+for i in $*
+do
+  if [ "$i" = "-w" ]; then
+    DANGER="-w"
+  fi
+  if [ "$i" = "-P" ]; then
+    NAPACHES=1
+  fi
+  if [ "$i" = "-h" ]; then
+    cat <<HELP
+$0 [-P <ppid>] [-p precision] [-u <us|ms|s>] [-w]
+
+	-P instruments only apache processes with a
+	progeny of the specified process id.
+	If it is not specified, all Apache processes
+	are instrumented.
+
+	-p 12 will specify the number of digits
+	precision to be used when reporting timing
+	information.  (default: 9)
+
+	-u us will report timings in microseconds,
+	-u ms will report miliseconds, (default)
+	-u s will report seconds.
+
+	-w work around some multi-processor issues
+	in DTrace.  Runs dtrace in destructive mode.
+	DANGEROUS. (not default)
+
+HELP
+   exit
+  fi
+done
+
+if [ "$NAPACHES" -eq 0 ]; then
+  NAPACHES=`ptree | grep httpd | grep '^[^ ]' | wc -l`
+fi
+
+if [ "$NAPACHES" -gt 1 ]; then
+  echo "There is more than one Apache running..."
+  echo "I'm going to watch them all.."
+  echo "You can use -P <ppid> to restrict to just one of them."
+  echo "Here are your choices:"
+  ptree | grep httpd | grep '^[^ ]'
+  echo
+fi
+
+echo "Removing and regenerating D script."
+rm -f ap-flow-cost.d
+./ap-flow-cost-writeD.sh $* > ap-flow-cost.d
+
+passint() {
+  echo
+  echo "DTrace stopped."
+  echo
+}
+
+trap passint 2
+echo "Running script. (hit CTRL-C after desired sample time)"
+/usr/sbin/dtrace $DANGER -q -s ./ap-flow-cost.d > ap-flow-cost.$$.out
+
+echo "Running report."
+./ap-flow-cost-view.pl -f ap-flow-cost.$$.out $*
+
+rm ap-flow-cost.$$.out
